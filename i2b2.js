@@ -14,7 +14,9 @@ exports.path_to_uri = function(path) {
 };
 
 exports.path_from_uri = function(uri) {
+  uri = uri.replace(settings.HOST_NAME, '');
   uri = uri.replace(settings.LOCAL_CONCEPT_PATH, '');
+  uri = uri.replace(/^\//, '');
   uri = uri.replace(/\/$/, '');
   uri = '/i2b2/'+decodeURIComponent(uri) + (uri?  '/': '');
   console.log("pfron");
@@ -31,13 +33,13 @@ exports.get_generic_data = function(p) {
            From observation_Fact f join concept_dimension c \
                     on c.concept_cd = f.concept_cd \
            where patient_num='"+p.recordId+"'";
-  
+  console.log(p);  
   if (p.startDate) { 
-    q += " and start_date >= to_date('"+p.startDate+"') ";
+    q += " and start_date >= to_date('"+p.startDate+"', 'YYYY-MM-DD') ";
   }
 
   if (p.endDate) {
-    q += " and start_date <= to_date('"+p.endDate+"') ";
+    q += " and start_date <= to_date('"+p.endDate+"', 'YYYY-MM-DD') ";
   }
 
   if (p.root) {

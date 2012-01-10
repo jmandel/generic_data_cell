@@ -31,32 +31,26 @@ var addValue = function(graph, root, fact) {
       NamedNode(fact.MODIFIER_CD)));
   }
 
-  if (fact.VALTYPE_CD !== '') {
+  if (fact.VALTYPE_CD !== '@' and fact.VALTYPE_CD !== '') {
     graph.add(Triple(
       root, 
-      NamedNode("i2b2:valType"), 
+      NamedNode("sp:valType"), 
       Literal(fact.VALTYPE_CD)));
   }
  
-  if (fact.VALTYPE_CD !== '') {
+  if (fact.TVAL_CHAR !== '') {
     graph.add(Triple(
       root, 
-      NamedNode("i2b2:valType"), 
-      Literal(fact.VALTYPE_CD)));
-  }
-  if (fact.VALTYPE_CD === 'T' && fact.TVAL_CHAR) {
-    graph.add(Triple(
-      root, 
-      NamedNode("sp:value"), 
+      NamedNode("sp:textValue"), 
       Literal(fact.TVAL_CHAR)));
   }
 
   if (fact.VALTYPE_CD === 'N' && fact.NVAL_NUM) {
+
     graph.add(Triple(
       root, 
-      NamedNode("sp:value"), 
+      NamedNode("sp:numericValue"), 
       Literal(fact.NVAL_NUM)));
-
 
       if (fact.UNITS_CD !== '@') {
 	graph.add(Triple(
@@ -65,93 +59,103 @@ var addValue = function(graph, root, fact) {
 	  Literal(fact.UNITS_CD)));
       }
   }
-
 };
 
+
+var parseOneFact = function(g, fact_id, fact) {
+
+  var ofact = NamedNode(settings.HOST_NAME + 
+			settings.GENERIC_DATA_PATH
+			  .replace(':genericDataId', fact_id)
+			  .replace(':recordId', fact.PATIENT_NUM));
+  
+  g.add(Triple(
+    ofact, 
+    NamedNode("sp:code"), 
+    NamedNode(fact.CONCEPT_CD) 
+  ));
+
+  g.add(Triple(
+    ofact, 
+    NamedNode("rdf:type"), 
+    NamedNode("sp:GenericDataItem") 
+  ));
+
+  g.add(Triple(
+    ofact, 
+    NamedNode("sp:forPatient"), 
+    NamedNode(settings.HOST_NAME + 
+	      settings.RECORD_PATH.replace(':recordId', fact.PATIENT_NUM))
+  ));
+
+  g.add(Triple(
+    ofact, 
+    NamedNode("sp:atEncounter"), 
+    NamedNode(settings.HOST_NAME + 
+	      settings.ENCOUNTER_PATH
+    .replace(':recordId', fact.PATIENT_NUM)
+    .replace(':encounterId', fact.ENCOUNTER_NUM))
+  ));
+
+  g.add(Triple(
+    ofact, 
+    NamedNode("sp:startDate"), 
+    Literal(new Date(fact.START_DATE).toISOString())
+  ));
+
+  addValue(g,  ofact, fact);
+
+  for (var i = 0; i < fact.modifiers.length; i++) {
+    console.log("a blank fact modifier");
+    var m = Blank();
+    g.add(Triple(ofact, NamedNode("sp:modifiedBy"), m));
+    addValue(g, m, fact.modifiers[i]);
+  };
+};
+
+var reconcileFacts = function(g, rows) {
+  var facts = {};
+
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+
+    var fact_id = md5(r.CONCEPT_CD +'.' +
+		      r.PATIENT_NUM +'.'+ 
+		      r.ENCOUNTER_NUM + '.'+ 
+		      r.INSTANCE_NUM);
+
+    var fact = facts[fact_id] || (facts[fact_id] = {modifiers: []});
+
+    if (r.MODIFIER_CD !== '@') {
+      // a modifier, not a base fact
+      var modifiers = fact.modifiers;
+      fact ={}
+      modifiers.push(fact);
+    }
+
+    for (var v in r) {
+      fact[v] = r[v];
+    }
+  }
+
+  for (var fact_id in facts) {
+    if (facts[fact_id].PATIENT_NUM === undefined) {
+      var tmp  = facts[fact_id].modifiers;
+      facts[fact_id] = tmp[0];
+      facts[fact_id].modifiers = tmp;
+    }
+  }
+
+  return facts;
+};
+
+
 var parseGenericDataResult = function(rows) {
-      var i, g = Graph();
+      var g = Graph();
 
-      var facts = {};
-      for (i = 0; i < rows.length; i++) {
-	var r = rows[i];
-
-	var fact_id = md5(r.CONCEPT_CD +'.' +
-			  r.PATIENT_NUM +'.'+ 
-			  r.ENCOUNTER_NUM + '.'+ 
-			  r.INSTANCE_NUM);
-
-	var fact = facts[fact_id] || (facts[fact_id] = {modifiers: []});
-
-	if (r.MODIFIER_CD !== '@') {
-	  // a modifier, not a base fact
-	  var modifiers = fact.modifiers;
-	  fact ={}
-	  modifiers.push(fact);
-	}
-	for (var v in r) {
-	  fact[v] = r[v];
-	}
-      }
-
+      var facts = reconcileFacts(g, rows);
       for (var fact_id in facts) {
-	if (facts[fact_id].PATIENT_NUM === undefined) {
-	  var tmp  = facts[fact_id].modifiers;
-	  facts[fact_id] = tmp[0];
-	  facts[fact_id].modifiers = tmp;
-	}
-      }
-
-      for (var fact_id in facts) {
-	var fact = facts[fact_id];
-//	console.log(fact);
-	var ofact = NamedNode(settings.HOST_NAME + 
-			      settings.GENERIC_DATA_PATH
-				.replace(':genericDataId', fact_id)
-				.replace(':recordId', fact.PATIENT_NUM));
-	g.add(Triple(
-	  ofact, 
-	  NamedNode("sp:code"), 
-	  NamedNode(fact.CONCEPT_CD) 
-	));
-
- 	g.add(Triple(
-	  ofact, 
-	  NamedNode("rdf:type"), 
-	  NamedNode("sp:GenericDataItem") 
-	));
- 
-	g.add(Triple(
-	  ofact, 
-	  NamedNode("sp:forPatient"), 
-	  NamedNode(settings.HOST_NAME + 
-		    settings.RECORD_PATH.replace(':recordId', r.PATIENT_NUM))
-	));
-      
-	g.add(Triple(
-	  ofact, 
-	  NamedNode("sp:atEncounter"), 
-	  NamedNode(settings.HOST_NAME + 
-		    settings.ENCOUNTER_PATH
-		    .replace(':recordId', fact.PATIENT_NUM)
-		    .replace(':encounterId', r.ENCOUNTER_NUM))
-	));
-
-	g.add(Triple(
-	  ofact, 
-	  NamedNode("sp:startDate"), 
-	  Literal(new Date(r.START_DATE).toISOString())
-	));
-
-  	addValue(g,  ofact, fact);
-      console.log("omds: " + fact.modifiers.length);
-      for (var i = 0; i < fact.modifiers.length; i++) {
-	console.log("a blank fact modifier");
-	var m = Blank();
-	g.add(Triple(ofact, NamedNode("sp:modifiedBy"), m));
-	addValue(g, m, fact.modifiers[i]);
-      };
-
-
+	parseOneFact(g, fact_id, facts[fact_id]);
       }
 
       return g;
@@ -162,15 +166,12 @@ exports.generic_data_single = function(req, res) {
 
   params.recordId = req.params.recordId;
 
-  if (req.param('root', null)) {
-    params.root = i2b2.path_from_uri(req.param('root'));
-  }
-
     i2b2.get_generic_data(params).then(function(rows) {
       var g = parseGenericDataResult(rows);
       res.contentType('text/plain');
       res.send(g.toNT());
     });
+
 };
 
 exports.generic_data_all = function(req, res) {
@@ -182,6 +183,8 @@ exports.generic_data_all = function(req, res) {
     params.root = i2b2.path_from_uri(req.param('root'));
   }
 
+  console.log(req.query);
+
   params.startDate = req.param('startDate', null);
   params.endDate = req.param('endDate', null);
 
@@ -191,8 +194,8 @@ exports.generic_data_all = function(req, res) {
       res.contentType('text/plain');
       res.send(g.toNT());
     });
-
 };
+
 exports.concept = function(req, res) {
 
     var ipath = i2b2.path_from_uri(req.path);
@@ -210,7 +213,6 @@ exports.concept = function(req, res) {
 	}
 
 	uri = NamedNode( i2b2.path_to_uri(r.PATH) );
-	console.log("uri: " + uri);
 	g.add(Triple(
 		    uri,
 		    NamedNode("skos:prefLabel"), 
@@ -232,6 +234,5 @@ exports.concept = function(req, res) {
       res.contentType('text/plain');
       res.send(g.toNT());
       res.end();
-
     });
 };
