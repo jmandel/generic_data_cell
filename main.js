@@ -8,4 +8,4 @@ console.log(settings.LOCAL_CONCEPT_PATH);
 app.get(settings.LOCAL_CONCEPT_PATH+'*', views.concept);
 app.get('/records/:recordId/generic_data/', views.generic_data);
 
-app.listen(3000);
+app.listen(settings.PORT);
