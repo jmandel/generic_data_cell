@@ -8,6 +8,7 @@ exports.PORT = 3000;
 exports.HOST_NAME = 'http://localhost:' + exports.PORT;
 
 exports.LOCAL_CONCEPT_PATH = '/local_concepts/root/';
+exports.LOCAL_CODE_PATH = '/local_concepts/by_code?code=:codeId';
 
 exports.RECORD_PATH = '/records/:recordId';
 exports.ENCOUNTER_PATH = '/records/:recordId/encounters/:encounterId';

@@ -1,16 +1,25 @@
 var db = require('./oracle_connection');
 var Promise = require('node-promise').Promise;
+var all = require('node-promise').all;
 var settings = require('./settings');
 
 exports.path_to_uri = function(path) {
-  path = path.replace(/^\\i2b2\\/,'').replace(/\\$/, '').replace(/\\/g, '__SEP');
+  path = path.replace(/^\\i2b2\\/,'');
+  path = path.replace(/\\$/, '');
+  path = path.replace(/\\/g, '__SEP');
   path = encodeURIComponent(path);
   path = path.replace(/__SEP/g,'/');
 
-  return "http://" + 
-	  settings.HOST_NAME + 
+  return  settings.HOST_NAME + 
 	  settings.LOCAL_CONCEPT_PATH  +
 	  path;
+};
+
+exports.code_to_uri = function(code) {
+  code = encodeURIComponent(code);
+  console.log(code);
+  return  settings.HOST_NAME + 
+	  settings.LOCAL_CODE_PATH.replace(':codeId', code);
 };
 
 exports.path_from_uri = function(uri) {
@@ -28,11 +37,13 @@ exports.get_generic_data = function(p) {
   var promise = new Promise();
 
   var q = "select f.concept_cd, c.concept_path, f.patient_num,\
-	   f.encounter_num, f.start_date, f.modifier_cd, f.instance_num,\
-	   f.valtype_cd, f.tval_char, f.nval_num, f.valueflag_cd, f.units_cd  \
+	   f.encounter_num, f.start_date, f.end_date, f.modifier_cd, f.instance_num,\
+	   f.valtype_cd, f.tval_char, f.nval_num, f.valueflag_cd, f.units_cd,  \
+	   o.c_name as code_label \
            From observation_Fact f join concept_dimension c \
                     on c.concept_cd = f.concept_cd \
-           where patient_num='"+p.recordId+"'";
+		    join i2b2metadata.i2b2 o on c.concept_cd=o.c_basecode \
+           where patient_num="+p.recordId;
   console.log(p);  
   if (p.startDate) { 
     q += " and start_date >= to_date('"+p.startDate+"', 'YYYY-MM-DD') ";
@@ -44,6 +55,16 @@ exports.get_generic_data = function(p) {
 
   if (p.root) {
     q += " and c.concept_path like '"+p.root+"%' ";
+  }
+  if (p.single) {
+    if (p.single.PATIENT_NUM !== p.recordId) {
+      throw "Generic data doens't bleong to patient: " + JSON.stringify(p);
+    }
+
+    q += " and f.encounter_num = '"+p.single.ENCOUNTER_NUM+"' ";
+    q += " and f.concept_cd = '"+p.single.CONCEPT_CD+"' ";
+    q += " and f.instance_num = '"+p.single.INSTANCE_NUM+"' ";
+
   }
 
   console.log(q);
@@ -95,6 +116,25 @@ exports.get_concept = function(ipath) {
     db.query().execute(q, function(err, rows, cols) {
       if (err) console.log(err);
 	promise.resolve(rows); 
+    });
+
+    return promise;
+};
+
+exports.get_concepts_for_code = function(codeId) {
+  var promise = new Promise();
+
+    var q = "select c_hlevel as depth, \
+		    c_fullname as path, \
+		    c_name as label, \
+		    c_basecode as code \
+	    from i2b2metadata.i2b2 where \
+	    c_basecode = '"+codeId+"'";
+
+
+    db.query().execute(q, function(err, rows, cols) {
+      if (err) console.log(err);
+      promise.resolve(rows);
     });
 
     return promise;

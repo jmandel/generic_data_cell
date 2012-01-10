@@ -3,6 +3,8 @@ var settings = require('./settings');
 var store = settings.store;
 var rdf = store.rdf;
 var crypto = require('crypto');
+var all = require('node-promise').all;
+var Promise = require('node-promise').Promise;
 
 function bind(fn, scope) {
   return function () {
@@ -16,12 +18,6 @@ var NamedNode = bind(rdf.createNamedNode, rdf);
 var Blank = bind(rdf.createBlankNode, rdf);
 var Triple = bind(rdf.createTriple, rdf);
 
-var md5 = function(s) {
-  var r = crypto.createHash('md5');
-  r.update(s);
-  return r.digest('hex');
-};
-
 var addValue = function(graph, root, fact) {
 
   if (fact.MODIFIER_CD !== '@') {
@@ -31,7 +27,7 @@ var addValue = function(graph, root, fact) {
       NamedNode(fact.MODIFIER_CD)));
   }
 
-  if (fact.VALTYPE_CD !== '@' and fact.VALTYPE_CD !== '') {
+  if (fact.VALTYPE_CD !== '@' && fact.VALTYPE_CD !== '') {
     graph.add(Triple(
       root, 
       NamedNode("sp:valType"), 
@@ -43,6 +39,13 @@ var addValue = function(graph, root, fact) {
       root, 
       NamedNode("sp:textValue"), 
       Literal(fact.TVAL_CHAR)));
+  }
+
+  if (fact.VALUEFLAG_CD!== '') {
+    graph.add(Triple(
+      root, 
+      NamedNode("sp:flagValue"), 
+      Literal(fact.VALUEFLAG_CD)));
   }
 
   if (fact.VALTYPE_CD === 'N' && fact.NVAL_NUM) {
@@ -68,12 +71,18 @@ var parseOneFact = function(g, fact_id, fact) {
 			settings.GENERIC_DATA_PATH
 			  .replace(':genericDataId', fact_id)
 			  .replace(':recordId', fact.PATIENT_NUM));
-  
+ 
+  var codeUri = NamedNode(i2b2.code_to_uri(fact.CONCEPT_CD));
+
   g.add(Triple(
     ofact, 
     NamedNode("sp:code"), 
-    NamedNode(fact.CONCEPT_CD) 
-  ));
+    codeUri));
+
+  g.add(Triple(
+    codeUri, 
+    NamedNode("skos:prefLabel"), 
+    Literal(fact.CODE_LABEL)));
 
   g.add(Triple(
     ofact, 
@@ -103,6 +112,12 @@ var parseOneFact = function(g, fact_id, fact) {
     Literal(new Date(fact.START_DATE).toISOString())
   ));
 
+  g.add(Triple(
+    ofact, 
+    NamedNode("sp:endDate"), 
+    Literal(new Date(fact.END_DATE).toISOString())
+  ));
+
   addValue(g,  ofact, fact);
 
   for (var i = 0; i < fact.modifiers.length; i++) {
@@ -119,10 +134,7 @@ var reconcileFacts = function(g, rows) {
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
 
-    var fact_id = md5(r.CONCEPT_CD +'.' +
-		      r.PATIENT_NUM +'.'+ 
-		      r.ENCOUNTER_NUM + '.'+ 
-		      r.INSTANCE_NUM);
+    var fact_id = encodeId(r);
 
     var fact = facts[fact_id] || (facts[fact_id] = {modifiers: []});
 
@@ -161,10 +173,37 @@ var parseGenericDataResult = function(rows) {
       return g;
 }
 
+var encodeId = function(p) {
+
+  var b = { c: p.CONCEPT_CD,
+            p: p.PATIENT_NUM,
+	    e: p.ENCOUNTER_NUM,
+	    i: p.INSTANCE_NUM
+  };
+
+  console.log("ENCODING AS:  " + JSON.stringify(b));
+  return new Buffer(JSON.stringify(b)).toString('base64');
+};
+
+
+var decodeId = function(id) {
+    var parts = JSON.parse(new Buffer(id, 'base64')
+      .toString('utf8'));
+  
+      console.log(parts);
+    return {
+      CONCEPT_CD: parts.c,
+      PATIENT_NUM: parts.p,
+      ENCOUNTER_NUM: parts.e,
+      INSTANCE_NUM: parts.i
+    }
+
+}
 exports.generic_data_single = function(req, res) {
   var params = {};
 
-  params.recordId = req.params.recordId;
+  params.recordId = parseInt(req.params.recordId);
+  params.single = decodeId(req.params.genericDataId);
 
     i2b2.get_generic_data(params).then(function(rows) {
       var g = parseGenericDataResult(rows);
@@ -185,8 +224,8 @@ exports.generic_data_all = function(req, res) {
 
   console.log(req.query);
 
-  params.startDate = req.param('startDate', null);
-  params.endDate = req.param('endDate', null);
+  params.startDate = req.param('after', null);
+  params.endDate = req.param('before', null);
 
   console.log("Generic data for " + req.params.record_id);
     i2b2.get_generic_data(params).then(function(rows) {
@@ -196,33 +235,34 @@ exports.generic_data_all = function(req, res) {
     });
 };
 
-exports.concept = function(req, res) {
 
-    var ipath = i2b2.path_from_uri(req.path);
+get_concept = function(p) {
+  var promise = new Promise();
+  var ipath = p.path;
+  var g = p.graph;
+  console.log(p); 
+  i2b2.get_concept(ipath).then(function(rows) {
 
-    i2b2.get_concept(ipath).then(function(rows) {
+    var uri =  prevUri = null;
 
-      var g = Graph();
-      var uri =  prevUri = null;
+    for (var i =0; i < rows.length; i++ ) {
+      var r = rows[i];
 
-      for (var i =0; i < rows.length; i++ ) {
-	var r = rows[i];
+      if (i > 0 && parseInt(rows[i-1].DEPTH) <  parseInt(r.DEPTH)) {
+	prevUri = uri;
+      }
 
-	if (i > 0 && parseInt(rows[i-1].DEPTH) <  parseInt(r.DEPTH)) {
-	  prevUri = uri;
-	}
-
-	uri = NamedNode( i2b2.path_to_uri(r.PATH) );
-	g.add(Triple(
-		    uri,
-		    NamedNode("skos:prefLabel"), 
-		    Literal(r.LABEL)));
+      uri = NamedNode( i2b2.path_to_uri(r.PATH) );
+      g.add(Triple(
+	uri,
+	NamedNode("skos:prefLabel"), 
+	Literal(r.LABEL)));
 
 	if (r.CODE !== '') {
 	  g.add(Triple(
 	    uri, 
 	    NamedNode("skos:closeMatch"), 
-	    Literal(r.CODE)));
+	    NamedNode(i2b2.code_to_uri(r.CODE))));
 	}
 
 	if (i > 0) {
@@ -230,9 +270,44 @@ exports.concept = function(req, res) {
 	  g.add(Triple(prevUri, NamedNode("skos:narrower"), uri));
 	} 
 
-      }
+    }
+
+    promise.resolve(g);
+  });
+
+  return promise;
+};
+
+exports.code = function(req, res) {
+  var codeId = req.param('code');
+  console.log("CODE: " + codeId);
+  i2b2.get_concepts_for_code(codeId).then(function(rows) {
+  console.log(rows);
+    var conceptPromises = [];
+    var g = Graph();
+
+    rows.forEach(function(r) {
+      conceptPromises.push(get_concept({ path: r.PATH, graph: g}));
+    });
+
+    all(conceptPromises).then(function() {
       res.contentType('text/plain');
       res.send(g.toNT());
-      res.end();
     });
+
+  });
+};
+
+exports.concept = function(req, res) {
+  var p = {
+    path: i2b2.path_from_uri(req.path),
+    graph: Graph()
+  };
+  console.log("Single concept: ");
+  get_concept(p).then(function() {
+    res.contentType('text/plain');
+    res.send(p.graph.toNT());
+    res.end();
+  });
+
 };
