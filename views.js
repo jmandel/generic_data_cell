@@ -24,44 +24,51 @@ var md5 = function(s) {
 
 var addValue = function(graph, root, fact) {
 
-  graph.add(
-    Triple(
-      root, 
-      NamedNode("i2b2:valType"), 
-      Literal(fact.VALTYPE_CD))
-  );
-
-  if (fact.TVAL_CHAR) {
+  if (fact.MODIFIER_CD !== '@') {
     graph.add(Triple(
       root, 
-      NamedNode("i2b2:textValue"), 
+      NamedNode("sp:modifierCode"), 
+      NamedNode(fact.MODIFIER_CD)));
+  }
+
+  if (fact.VALTYPE_CD !== '') {
+    graph.add(Triple(
+      root, 
+      NamedNode("i2b2:valType"), 
+      Literal(fact.VALTYPE_CD)));
+  }
+ 
+  if (fact.VALTYPE_CD !== '') {
+    graph.add(Triple(
+      root, 
+      NamedNode("i2b2:valType"), 
+      Literal(fact.VALTYPE_CD)));
+  }
+  if (fact.VALTYPE_CD === 'T' && fact.TVAL_CHAR) {
+    graph.add(Triple(
+      root, 
+      NamedNode("sp:value"), 
       Literal(fact.TVAL_CHAR)));
   }
 
-  if (fact.NVAL_NUM) {
+  if (fact.VALTYPE_CD === 'N' && fact.NVAL_NUM) {
     graph.add(Triple(
       root, 
-      NamedNode("i2b2:numericValue"), 
+      NamedNode("sp:value"), 
       Literal(fact.NVAL_NUM)));
+
+
+      if (fact.UNITS_CD !== '@') {
+	graph.add(Triple(
+	  root, 
+	  NamedNode("sp:units"), 
+	  Literal(fact.UNITS_CD)));
+      }
   }
 
 };
 
-exports.generic_data = function(req, res) {
-  var params = {};
-
-  params.recordId = req.params.recordId;
-
-  if (req.param('root', null)) {
-    params.root = i2b2.path_from_uri(req.param('root'));
-  }
-
-  params.startDate = req.param('startDate', null);
-  params.endDate = req.param('endDate', null);
-
-  console.log("Generic data for " + req.params.record_id);
-    i2b2.get_generic_data(params).then(function(rows) {
-
+var parseGenericDataResult = function(rows) {
       var i, g = Graph();
 
       var facts = {};
@@ -86,7 +93,6 @@ exports.generic_data = function(req, res) {
 	}
       }
 
-	//console.log(JSON.stringify(facts));
       for (var fact_id in facts) {
 	if (facts[fact_id].PATIENT_NUM === undefined) {
 	  var tmp  = facts[fact_id].modifiers;
@@ -100,14 +106,25 @@ exports.generic_data = function(req, res) {
 //	console.log(fact);
 	var ofact = NamedNode(settings.HOST_NAME + 
 			      settings.GENERIC_DATA_PATH
-				.replace('{generic_data_id}', fact_id)
-				.replace('{record_id}', fact.PATIENT_NUM));
+				.replace(':genericDataId', fact_id)
+				.replace(':recordId', fact.PATIENT_NUM));
+	g.add(Triple(
+	  ofact, 
+	  NamedNode("sp:code"), 
+	  NamedNode(fact.CONCEPT_CD) 
+	));
 
+ 	g.add(Triple(
+	  ofact, 
+	  NamedNode("rdf:type"), 
+	  NamedNode("sp:GenericDataItem") 
+	));
+ 
 	g.add(Triple(
 	  ofact, 
 	  NamedNode("sp:forPatient"), 
 	  NamedNode(settings.HOST_NAME + 
-		    settings.RECORD_PATH.replace('{record_id}', r.PATIENT_NUM))
+		    settings.RECORD_PATH.replace(':recordId', r.PATIENT_NUM))
 	));
       
 	g.add(Triple(
@@ -115,8 +132,8 @@ exports.generic_data = function(req, res) {
 	  NamedNode("sp:atEncounter"), 
 	  NamedNode(settings.HOST_NAME + 
 		    settings.ENCOUNTER_PATH
-		    .replace('{record_id}', fact.PATIENT_NUM)
-		    .replace('{encounter_id}', r.ENCOUNTER_NUM))
+		    .replace(':recordId', fact.PATIENT_NUM)
+		    .replace(':encounterId', r.ENCOUNTER_NUM))
 	));
 
 	g.add(Triple(
@@ -130,17 +147,49 @@ exports.generic_data = function(req, res) {
       for (var i = 0; i < fact.modifiers.length; i++) {
 	console.log("a blank fact modifier");
 	var m = Blank();
-	g.add(Triple(ofact, NamedNode("smart:modifiedBy"), m));
+	g.add(Triple(ofact, NamedNode("sp:modifiedBy"), m));
 	addValue(g, m, fact.modifiers[i]);
       };
 
 
       }
 
-      //console.log(rows);
+      return g;
+}
+
+exports.generic_data_single = function(req, res) {
+  var params = {};
+
+  params.recordId = req.params.recordId;
+
+  if (req.param('root', null)) {
+    params.root = i2b2.path_from_uri(req.param('root'));
+  }
+
+    i2b2.get_generic_data(params).then(function(rows) {
+      var g = parseGenericDataResult(rows);
       res.contentType('text/plain');
       res.send(g.toNT());
-//      res.send(rows);
+    });
+};
+
+exports.generic_data_all = function(req, res) {
+  var params = {};
+
+  params.recordId = req.params.recordId;
+
+  if (req.param('root', null)) {
+    params.root = i2b2.path_from_uri(req.param('root'));
+  }
+
+  params.startDate = req.param('startDate', null);
+  params.endDate = req.param('endDate', null);
+
+  console.log("Generic data for " + req.params.record_id);
+    i2b2.get_generic_data(params).then(function(rows) {
+      var g = parseGenericDataResult(rows);
+      res.contentType('text/plain');
+      res.send(g.toNT());
     });
 
 };
