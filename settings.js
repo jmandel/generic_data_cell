@@ -1,14 +1,25 @@
 var rdfstore = require('rdfstore');
 var store = rdfstore.create();
+
+exports.vocab_mappings = [
+  // TODO: other mappings here !
+    function(c) {
+      var m = c.match(/^LOINC:(.+)/); 
+      if ( m=== null ) 
+	return;
+      return "http://loinc.org/codes/" + m[1]; 
+    }
+];
+
 store.rdf.setPrefix("i2b2", "http://smarti2b2.org/terms/");
 store.rdf.setPrefix("skos", "http://www.w3.org/2004/02/skos/core#");
 store.rdf.setPrefix("sp", "http://smartplatforms.org/terms#");
 
-exports.PORT = 3000;
-exports.HOST_NAME = 'http://localhost:' + exports.PORT;
+exports.PORT = 8000;
+exports.HOST_NAME = 'http://303.snarked.com:' + exports.PORT;
 
-exports.LOCAL_CONCEPT_PATH = '/local_concepts/root/';
-exports.LOCAL_CODE_PATH = '/local_concepts/by_code?code=:codeId';
+exports.LOCAL_CONCEPT_PATH = '/local_concepts/';
+exports.LOCAL_CODE_PATH = '/local_codes/:dimensionId/:codeId';
 
 exports.RECORD_PATH = '/records/:recordId';
 exports.ENCOUNTER_PATH = '/records/:recordId/encounters/:encounterId';

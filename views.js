@@ -18,13 +18,19 @@ var NamedNode = bind(rdf.createNamedNode, rdf);
 var Blank = bind(rdf.createBlankNode, rdf);
 var Triple = bind(rdf.createTriple, rdf);
 
-var addValue = function(graph, root, fact) {
+var fillOutFact = function(graph, root, fact) {
 
   if (fact.MODIFIER_CD !== '@') {
-    graph.add(Triple(
-      root, 
-      NamedNode("sp:modifierCode"), 
-      NamedNode(fact.MODIFIER_CD)));
+     var modUri = NamedNode(i2b2.code_to_uri({dimension: 'modifier_cd', code: fact.MODIFIER_CD}));
+
+     graph.add(Triple(
+       modUri, 
+       NamedNode("skos:prefLabel"), 
+       Literal(fact.MODIFIER_LABEL)));
+
+    add_code_with_external_mappings(graph, root, NamedNode('sp:modifierCode'), 
+				      { dimension: 'modifier_cd', 
+					code: fact.MODIFIER_CD});
   }
 
   if (fact.VALTYPE_CD !== '@' && fact.VALTYPE_CD !== '') {
@@ -72,12 +78,8 @@ var parseOneFact = function(g, fact_id, fact) {
 			  .replace(':genericDataId', fact_id)
 			  .replace(':recordId', fact.PATIENT_NUM));
  
-  var codeUri = NamedNode(i2b2.code_to_uri(fact.CONCEPT_CD));
-
-  g.add(Triple(
-    ofact, 
-    NamedNode("sp:code"), 
-    codeUri));
+  var codeUri = NamedNode(i2b2.code_to_uri({dimension: 'concept_cd', code: fact.CONCEPT_CD}));
+  add_code_with_external_mappings(g, ofact, NamedNode('sp:code'), {dimension: 'concept_cd', code: fact.CONCEPT_CD});
 
   g.add(Triple(
     codeUri, 
@@ -118,13 +120,13 @@ var parseOneFact = function(g, fact_id, fact) {
     Literal(new Date(fact.END_DATE).toISOString())
   ));
 
-  addValue(g,  ofact, fact);
+  fillOutFact(g,  ofact, fact);
 
   for (var i = 0; i < fact.modifiers.length; i++) {
     console.log("a blank fact modifier");
     var m = Blank();
     g.add(Triple(ofact, NamedNode("sp:modifiedBy"), m));
-    addValue(g, m, fact.modifiers[i]);
+    fillOutFact(g, m, fact.modifiers[i]);
   };
 };
 
@@ -207,8 +209,9 @@ exports.generic_data_single = function(req, res) {
 
     i2b2.get_generic_data(params).then(function(rows) {
       var g = parseGenericDataResult(rows);
-      res.contentType('text/plain');
-      res.send(g.toNT());
+      res.header('Content-Type', 'text/plain');
+      res.write(g.toNT());
+      res.end();
     });
 
 };
@@ -218,8 +221,8 @@ exports.generic_data_all = function(req, res) {
 
   params.recordId = req.params.recordId;
 
-  if (req.param('root', null)) {
-    params.root = i2b2.path_from_uri(req.param('root'));
+  if (req.param('below', null)) {
+    params.root = i2b2.path_from_uri(req.param('below'));
   }
 
   console.log(req.query);
@@ -230,11 +233,34 @@ exports.generic_data_all = function(req, res) {
   console.log("Generic data for " + req.params.record_id);
     i2b2.get_generic_data(params).then(function(rows) {
       var g = parseGenericDataResult(rows);
-      res.contentType('text/plain');
+      res.header('Content-Type', 'text/plain');
       res.send(g.toNT());
     });
 };
 
+
+add_code_with_external_mappings = function(g, subject, predicate, code) {
+  console.log("EXT MAP " + code);
+
+  var codeUri = NamedNode(i2b2.code_to_uri(code));
+
+  g.add(Triple(
+    subject, 
+    predicate,
+    codeUri));
+
+  settings.vocab_mappings.forEach(function(mapper) {
+    var r = mapper(code.code);
+    if (r) {
+      console.log("Adding");
+      g.add(Triple(
+	codeUri,
+	NamedNode("skos:exactMatch"),
+	NamedNode(r)
+      ));
+    }
+  });
+};
 
 get_concept = function(p) {
   var promise = new Promise();
@@ -245,6 +271,9 @@ get_concept = function(p) {
 
     var uri =  prevUri = null;
 
+    // walk down the hierarchy asserting each node
+    // as its own URI with label and links:
+    //     narrower --> parent
     for (var i =0; i < rows.length; i++ ) {
       var r = rows[i];
 
@@ -253,22 +282,19 @@ get_concept = function(p) {
       }
 
       uri = NamedNode( i2b2.path_to_uri(r.PATH) );
+
       g.add(Triple(
 	uri,
 	NamedNode("skos:prefLabel"), 
 	Literal(r.LABEL)));
 
-	if (r.CODE !== '') {
-	  g.add(Triple(
-	    uri, 
-	    NamedNode("skos:closeMatch"), 
-	    NamedNode(i2b2.code_to_uri(r.CODE))));
-	}
+      if (r.CODE !== '') {
+	add_code_with_external_mappings(g, uri, NamedNode('skos:closeMatch'), {dimension: r.DIMENSION, code: r.CODE});
+      }
 
-	if (i > 0) {
-	  g.add(Triple(uri, NamedNode("skos:broader"), prevUri));
-	  g.add(Triple(prevUri, NamedNode("skos:narrower"), uri));
-	} 
+      if (i > 0) {
+	g.add(Triple(prevUri, NamedNode("skos:narrower"), uri));
+      } 
 
     }
 
@@ -279,9 +305,11 @@ get_concept = function(p) {
 };
 
 exports.code = function(req, res) {
-  var codeId = req.param('code');
-  console.log("CODE: " + codeId);
-  i2b2.get_concepts_for_code(codeId).then(function(rows) {
+
+  var dimension = req.params.dimensionId;
+  var code = req.params.codeId;
+
+  i2b2.get_concepts_for_code(dimension, code).then(function(rows) {
   console.log(rows);
     var conceptPromises = [];
     var g = Graph();
@@ -291,7 +319,7 @@ exports.code = function(req, res) {
     });
 
     all(conceptPromises).then(function() {
-      res.contentType('text/plain');
+      res.header('Content-Type', 'text/plain');
       res.send(g.toNT());
     });
 
@@ -305,7 +333,7 @@ exports.concept = function(req, res) {
   };
   console.log("Single concept: ");
   get_concept(p).then(function() {
-    res.contentType('text/plain');
+    res.header('Content-Type', 'text/plain');
     res.send(p.graph.toNT());
     res.end();
   });
