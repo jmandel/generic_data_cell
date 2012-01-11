@@ -84,7 +84,7 @@ exports.get_concept = function(ipath) {
       i, p;
 
     console.log(ipath); 
-    parentPaths = [];
+    parentPaths = ['\\'];
     ipath.split('\\').forEach(function(p) {
 
       if (!p) return;
@@ -95,12 +95,12 @@ exports.get_concept = function(ipath) {
     });
 
     // TODO: sanitize SQL input :-)
-    parentPaths = parentPaths.splice(1);
+    //parentPaths = parentPaths.splice(1);
     for (i = 0; i < parentPaths.length; i++) {
       parentPaths[i] = "c_fullname = '"+parentPaths[i]+"'";
     }
 
-    var nextLevel =  parentPaths.length + 1;
+    var nextLevel =  parentPaths.length -1;
     var q = "select c_hlevel as depth, \
 		    c_fullname as path, \
 		    c_name as label, \

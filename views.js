@@ -285,7 +285,7 @@ get_concept = function(p) {
 	add_code_with_external_mappings(g, uri, NamedNode('skos:closeMatch'), {dimension: r.DIMENSION, code: r.CODE});
       }
 
-      if (i > 0) {
+      if (prevUri && i > 0) {
 	g.add(Triple(prevUri, NamedNode("skos:narrower"), uri));
       } 
 
