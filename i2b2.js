@@ -24,8 +24,6 @@ exports.path_from_uri = function(uri) {
   uri = uri.replace(/^\//g, '');
   uri = uri.replace(/\/$/g, '');
   uri = '/'+decodeURIComponent(uri) + (uri?  '/': '');
-  console.log("pfron");
-  console.log(uri);
   return uri.replace(/\//g, '\\');
 };
 
@@ -49,7 +47,6 @@ exports.get_generic_data = function(p) {
                     on c.concept_cd = f.concept_cd \
 		left outer join i2b2metadata.i2b2 o on o.c_basecode = f.modifier_cd \
            where patient_num="+p.recordId;
-  console.log(p);  
   if (p.startDate) { 
     q += " and start_date >= to_date('"+p.startDate+"', 'YYYY-MM-DD') ";
   }
@@ -121,7 +118,6 @@ exports.get_concept = function(ipath) {
     console.log(q);
     db.query().execute(q, function(err, rows, cols) {
       if (err) console.log(err);
-      console.log(rows);
 	promise.resolve(rows); 
     });
 

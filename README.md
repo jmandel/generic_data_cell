@@ -11,7 +11,7 @@ Requires:  nodejs 0.6
 To run:  
 
 1. Edit `oracle_connection.js` to supply hostname, user, password.
-2. Edit `settings.js` to supply a port (default 3000)
+2. Edit `settings.js` to supply a port (default 8000)
 2. `> node main.js`
 
 Questions:
